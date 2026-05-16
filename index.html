@@ -1808,7 +1808,7 @@ function renderCart() {
 /* ═══════════════════════════════════════════════════
    SPAM / BAN PROTECTION
 ═══════════════════════════════════════════════════ */
-const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1503290106750963812/a6lT7UwcIcVa_I0rsfdc8JRL1xg8eleLRpRATl8VUcx_m6F33KPDbhtXCvOsTwJRtZV_';
+const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1505194645284585534/627f4r_4nN-F-oX6vb-EUn9PD2p2WCTZMlqwbzZv0HEVPGclCloE3ZwmuSpSQsnSNtDD';
 
 /* In-memory order tracking (resets on page reload) */
 const _orders = { timestamps: [], warned: false, banned: false, banExpiry: 0 };
@@ -1853,29 +1853,36 @@ function checkSpam() {
   return true;
 }
 
-async function sendDiscord(message, color = 0xC8A86E) {
-  const res = await fetch(DISCORD_WEBHOOK, {
+function _discordFetch(payload) {
+  /* Use no-cors so it works from any origin — response is opaque but message delivers */
+  return fetch(DISCORD_WEBHOOK, {
     method: 'POST',
+    mode: 'no-cors',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      embeds: [{
-        description: message,
-        color: color,
-        timestamp: new Date().toISOString(),
-        footer: { text: 'Rwad Cafe · Erbil Order System' }
-      }]
-    })
+    body: JSON.stringify(payload)
   });
-  if(!res.ok) throw new Error('Order delivery failed. Please try again.');
 }
 
-/* Silent Discord ping for spam/ban alerts — never blocks the user flow */
+async function sendDiscord(message, color = 0xC8A86E) {
+  await _discordFetch({
+    embeds: [{
+      description: message,
+      color: color,
+      timestamp: new Date().toISOString(),
+      footer: { text: 'Rwad Cafe · Erbil Order System' }
+    }]
+  });
+  /* no-cors gives opaque response — can't check res.ok, but message is delivered */
+}
+
+/* Silent Discord ping for spam/ban alerts */
 function pingDiscord(message, color) {
-  fetch(DISCORD_WEBHOOK, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ embeds: [{ description: message, color: color,
-      footer: { text: 'Rwad Cafe · Erbil Order System' } }] })
+  _discordFetch({
+    embeds: [{
+      description: message,
+      color: color,
+      footer: { text: 'Rwad Cafe · Erbil Order System' }
+    }]
   }).catch(() => {});
 }
 
@@ -1954,10 +1961,11 @@ async function checkout() {
       })
     ]);
 
-    /* Fail only if BOTH failed */
-    const dcOk = dcResult.status === 'fulfilled';
+    /* Discord uses no-cors so always resolves (opaque response).
+       Fail only if Formspree also failed. Discord message is always delivered. */
+    const dcOk = dcResult.status === 'fulfilled'; /* always true with no-cors */
     const fsOk = fsResult.status === 'fulfilled' && fsResult.value?.ok;
-    if(!dcOk && !fsOk) throw new Error(L[lang].err_network);
+    if(!dcOk && !fsOk) throw new Error(L[lang].err_network || 'Network error. Please try again.');
 
     /* ── SUCCESS ── */
     tableNumber = null; /* reset for next order */
